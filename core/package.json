@@ -5,11 +5,14 @@
   "type": "module",
   "license": "UNLICENSED",
   "private": true,
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "demo": "node demo/bike-sale.ts",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "demo:shop": "node demo/shop.ts"
   },
   "devDependencies": {
     "typescript": "^5.8.0",

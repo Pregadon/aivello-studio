@@ -1,6 +1,7 @@
 import type { KeyObject } from 'node:crypto';
 import { AttentionLedger } from './attention.ts';
 import type { Message } from './protocol.ts';
+import type { Product, Shop } from './shop.ts';
 import { verifySigned } from './seal.ts';
 import type { Signed } from './seal.ts';
 
@@ -25,6 +26,31 @@ export class Switchboard {
 
   constructor(clock: () => Date = () => new Date()) {
     this.clock = clock;
+  }
+
+  shops = new Map<string, Shop>();
+
+  listShop(owner: string, shop: Shop): void {
+    this.shops.set(owner, shop);
+  }
+
+  unlistShop(owner: string): void {
+    this.shops.delete(owner);
+  }
+
+  // Каталог опублікованих магазинів: те, що бачать посли покупців.
+  searchProducts(query: string): { embassy: string; shop: string; product: Product }[] {
+    const q = query.trim().toLowerCase();
+    const out: { embassy: string; shop: string; product: Product }[] = [];
+    for (const [embassy, shop] of this.shops) {
+      if (shop.status !== 'published') continue;
+      for (const product of shop.inStock()) {
+        if (`${product.title} ${product.description}`.toLowerCase().includes(q)) {
+          out.push({ embassy, shop: shop.profile!.name, product });
+        }
+      }
+    }
+    return out;
   }
 
   register(ep: Endpoint): void {

@@ -10,6 +10,8 @@ import { ProtocolError, Thread } from './protocol.ts';
 import type { Message, MsgType, Terms, Topic } from './protocol.ts';
 import { newKeyPair, signAs, verifySigned } from './seal.ts';
 import type { KeyPair, Signed } from './seal.ts';
+import { PUBLISH_FEE, Shop, ShopError } from './shop.ts';
+import type { PaymentGateway, Product, ShopProfile } from './shop.ts';
 import type { Decision, Intent, Mandate, PolicyContext } from './types.ts';
 
 export interface Proposal {
@@ -35,6 +37,16 @@ export interface GoalGrant {
   goal: DealGoal;
 }
 
+// Команди магазину, які людина підписує сама.
+export type ShopCommand =
+  | { embassy: string; op: 'activate' }
+  | { embassy: string; op: 'profile'; profile: ShopProfile }
+  | { embassy: string; op: 'add'; product: Omit<Product, 'id'> }
+  | { embassy: string; op: 'update'; productId: string; patch: Partial<Omit<Product, 'id'>> }
+  | { embassy: string; op: 'remove'; productId: string }
+  | { embassy: string; op: 'publish' }
+  | { embassy: string; op: 'unpublish' };
+
 export type Commitment = 'pending_human' | 'committed' | 'rejected' | 'cancelled';
 
 export class AuthError extends Error {}
@@ -45,6 +57,7 @@ export interface EmbassyOptions {
   humanPublicKey: KeyObject;
   net: Switchboard;
   brain?: Brain;
+  payments?: PaymentGateway;
   mandate?: Mandate;
   clock?: () => Date;
 }
@@ -65,6 +78,10 @@ export class Embassy implements Endpoint {
 
   proposals = new Map<number, Proposal>();
   sellerGoals = new Map<string, DealGoal>();
+  // Магазин є з коробки, але вимкнений, доки людина його не активує.
+  shop: Shop;
+  payments?: PaymentGateway;
+  threadProducts = new Map<string, string>();
   threadGoals = new Map<string, DealGoal>();
   threads = new Map<string, Thread>();
   myLastPrice = new Map<string, number>();
@@ -80,6 +97,8 @@ export class Embassy implements Endpoint {
     this.brain = o.brain ?? new SimpleNegotiator();
     this.mandate = o.mandate ?? defaultMandate();
     this.clock = o.clock ?? (() => new Date());
+    this.shop = new Shop(o.id);
+    this.payments = o.payments;
     this.journal = new Journal(this.clock);
     o.net.register(this);
   }
@@ -204,6 +223,72 @@ export class Embassy implements Endpoint {
     return threadId;
   }
 
+  // ---------- Магазин ----------
+
+  manageShop(signed: Signed<ShopCommand>): void {
+    const c = this.requireHuman(signed);
+    const note = (summary: string): void => {
+      this.journal.record({ actor: 'human', kind: 'decided', summary, reason: 'Рішення людини' });
+    };
+    switch (c.op) {
+      case 'activate':
+        this.shop.activate();
+        return note('Магазин активовано');
+      case 'profile':
+        this.shop.setProfile(c.profile);
+        return note(`Профіль магазину: ${c.profile.name}`);
+      case 'add':
+        return note(`Додано товар: ${this.shop.addProduct(c.product).title}`);
+      case 'update':
+        return note(`Змінено товар: ${this.shop.updateProduct(c.productId, c.patch).title}`);
+      case 'remove':
+        this.shop.removeProduct(c.productId);
+        return note('Товар прибрано');
+      case 'publish':
+        return this.publishShop(note);
+      case 'unpublish':
+        this.shop.unpublish();
+        this.net.unlistShop(this.id);
+        return note('Магазин знято з публікації');
+    }
+  }
+
+  publishShop(note: (s: string) => void): void {
+    const gaps = this.shop.missing();
+    if (gaps.length) throw new ShopError(`Бракує: ${gaps.join(', ')}`);
+    let receipt = this.shop.receipt;
+    if (!receipt) {
+      if (!this.payments) throw new ShopError('Оплата недоступна: не підключено платіжний шлюз');
+      receipt = this.payments.charge(this.id, PUBLISH_FEE.amountCents, PUBLISH_FEE.currency, 'Публікація магазину');
+      note(`Оплачено публікацію магазину: $${PUBLISH_FEE.amountCents / 100}`);
+    }
+    this.shop.publish(receipt);
+    this.net.listShop(this.id, this.shop);
+    note(`Магазин «${this.shop.profile!.name}» опубліковано`);
+  }
+
+  // Посол може підготувати товар (наприклад, з фото і голосового). Товар — публічний контент,
+  // тож його додавання підпорядковується сфері «Публікації» мандату.
+  draftProduct(product: Omit<Product, 'id'>): Decision {
+    if (this.shop.status === 'inactive') throw new ShopError('Спершу активуй магазин');
+    return this.act(
+      { domain: 'posts', action: 'shop-draft', summary: `Додати в магазин: ${product.title} за ${product.priceUAH} грн` },
+      () => {
+        this.shop.addProduct(product);
+      },
+    );
+  }
+
+  shopGoal(item: string): { goal: DealGoal; productId: string } | undefined {
+    if (this.shop.status !== 'published') return undefined;
+    const p = this.shop.inStock().find((x) => x.title === item);
+    if (!p) return undefined;
+    return {
+      productId: p.id,
+      goal: { role: 'seller', item: p.title, targetUAH: p.priceUAH, limitUAH: p.minPriceUAH ?? p.priceUAH },
+    };
+  }
+
   // ---------- Протокол посол-посол ----------
 
   sign(m: Message): Signed<Message> {
@@ -272,6 +357,7 @@ export class Embassy implements Endpoint {
       case 'WITHDRAW':
         if (this.commitments.get(t.id) === 'committed') {
           this.commitments.set(t.id, 'cancelled');
+          this.adjustStock(t, +1);
           this.journal.record({ actor: 'system', kind: 'received', summary: `Угоду ${t.id} скасувала інша сторона`, reason: m.type });
         }
         return;
@@ -279,7 +365,10 @@ export class Embassy implements Endpoint {
   }
 
   onRequest(t: Thread, m: Message): void {
-    const goal = m.topic === 'deal' && m.terms.item ? this.sellerGoals.get(m.terms.item) : undefined;
+    const item = m.topic === 'deal' ? m.terms.item : undefined;
+    const fromShop = item ? this.shopGoal(item) : undefined;
+    if (fromShop) this.threadProducts.set(t.id, fromShop.productId);
+    const goal = item ? (this.sellerGoals.get(item) ?? fromShop?.goal) : undefined;
     if (!goal) {
       this.act(
         { domain: 'inbox', action: 'decline', summary: `Ввічливо відмовити ${m.from}: немає такої пропозиції`, counterparty: m.from },
@@ -345,6 +434,7 @@ export class Embassy implements Endpoint {
     const goal = this.threadGoals.get(t.id);
     const who = this.other(t);
     const withdraw = () => {
+      if (this.commitments.get(t.id) === 'committed') this.adjustStock(t, +1);
       this.commitments.set(t.id, 'rejected');
       if (t.state === 'agreed') this.sendRaw(t, 'WITHDRAW', {});
     };
@@ -357,11 +447,21 @@ export class Embassy implements Endpoint {
         counterparty: who,
         amountUAH: priceUAH,
       },
-      () => this.commitments.set(t.id, 'committed'),
+      () => {
+        this.commitments.set(t.id, 'committed');
+        this.adjustStock(t, -1);
+      },
       withdraw,
       withdraw,
     );
     if (d.verdict === 'deny') withdraw();
+  }
+
+  // Продаж товару з магазину змінює залишок; скасування повертає його.
+  adjustStock(t: Thread, delta: number): void {
+    const id = this.threadProducts.get(t.id);
+    const p = id ? this.shop.products.get(id) : undefined;
+    if (p) p.stock = Math.max(0, p.stock + delta);
   }
 
   // ---------- Депеша ----------
