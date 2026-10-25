@@ -1,0 +1,381 @@
+<title>Посол прототип</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single phone-sized app column centred on the page; tab bar pinned to the bottom of the column */
+:root{
+  --paper:#e6eaec; --sheet:#ffffff; --raise:#f4f6f7; --ink:#14212b; --muted:#56656f; --rule:#d5dcdf;
+  --stamp:#1d6b57; --stamp-soft:#dcebe5; --human:#a8620f; --human-soft:#f6e8d3; --alert:#b3261e; --alert-soft:#f8dedb;
+  --display:"Unbounded","Arial Black",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#0b1216; --sheet:#141f26; --raise:#1b2830; --ink:#e4ecef; --muted:#97a7b0; --rule:#2a3a44;
+  --stamp:#5cc2a3; --stamp-soft:#173a32; --human:#e8a755; --human-soft:#3a2a14; --alert:#ff8a80; --alert-soft:#3d1c1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#0b1216; --sheet:#141f26; --raise:#1b2830; --ink:#e4ecef; --muted:#97a7b0; --rule:#2a3a44;
+  --stamp:#5cc2a3; --stamp-soft:#173a32; --human:#e8a755; --human-soft:#3a2a14; --alert:#ff8a80; --alert-soft:#3d1c1a; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.page{max-width:440px;margin:0 auto;padding-block:20px 40px;display:flex;flex-direction:column;gap:12px}
+.note{font-size:12.5px;color:var(--muted);text-align:center}
+.app{background:var(--sheet);border:1px solid var(--rule);border-radius:28px;overflow:hidden;display:flex;flex-direction:column;min-height:720px;
+  box-shadow:0 30px 60px -36px rgba(20,33,43,.45)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px 12px;border-bottom:1px solid var(--rule)}
+.brand{font-family:var(--display);font-weight:700;font-size:20px}
+.status{font-family:var(--mono);font-size:11.5px;color:var(--stamp);display:flex;align-items:center;gap:6px}
+.status .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.app.quiet .status{color:var(--alert)}
+.quietbtn{font:500 12.5px var(--body);border:1px solid var(--rule);background:var(--raise);color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.app.quiet .quietbtn{background:var(--alert);border-color:var(--alert);color:var(--sheet)}
+.banner{background:var(--alert-soft);color:var(--alert);font-size:13px;padding:8px 18px}
+main{flex:1;overflow-y:auto;padding:16px 18px 20px;display:flex;flex-direction:column;gap:14px}
+h2{font-family:var(--display);font-weight:500;font-size:17px;margin:0;text-wrap:balance}
+.sub{font-size:13px;color:var(--muted);margin:-8px 0 0}
+.label{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+button{font-family:inherit}
+button:focus-visible,input:focus-visible{outline:2px solid var(--stamp);outline-offset:2px}
+
+.card{background:var(--raise);border:1px solid var(--rule);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.card.human{border-color:var(--human)}
+.card p{margin:0}
+.meta{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.tag{font-family:var(--mono);font-size:11px;padding:2px 7px;border-radius:5px;background:var(--stamp-soft);color:var(--stamp);white-space:nowrap}
+.tag.h{background:var(--human-soft);color:var(--human)}
+.tag.a{background:var(--alert-soft);color:var(--alert)}
+.time{font-family:var(--mono);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.btn{font:500 13.5px var(--body);border-radius:9px;padding:7px 14px;border:1px solid var(--rule);background:var(--sheet);color:var(--ink);cursor:pointer}
+.btn.p{background:var(--stamp);border-color:var(--stamp);color:var(--sheet)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.why{font-size:12.5px;color:var(--muted)}
+.empty{font-size:14px;color:var(--muted);text-align:center;padding:16px}
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{border:1px solid var(--rule);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:2px}
+.stat b{font-family:var(--display);font-weight:500;font-size:20px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted);line-height:1.3}
+
+/* mandate */
+.mrow{display:flex;flex-direction:column;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--rule)}
+.mrow:last-child{border-bottom:0}
+.mrow .name{display:flex;justify-content:space-between;gap:8px;font-weight:600}
+.seg{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--muted);font-size:12px;padding:7px 2px;cursor:pointer;border-right:1px solid var(--rule)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"]{background:var(--stamp);color:var(--sheet);font-weight:600}
+.seg button[aria-pressed="true"].lh{background:var(--human);}
+.seg button:disabled{cursor:not-allowed}
+.range{display:flex;flex-direction:column;gap:4px}
+.range input{width:100%;accent-color:var(--stamp)}
+.range .v{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+
+/* negotiation */
+.neg{display:flex;justify-content:space-between;gap:10px;align-items:center;cursor:pointer;text-align:left;width:100%;color:var(--ink)}
+.neg > div{min-width:0}
+.bar{height:4px;border-radius:4px;background:var(--rule);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--stamp);transition:width .4s}
+.log{font-family:var(--mono);font-size:12.5px;display:flex;flex-direction:column;gap:8px;background:var(--sheet);border:1px solid var(--rule);border-radius:12px;padding:12px}
+.log .ln{display:flex;flex-direction:column;gap:1px}
+.log .who{color:var(--stamp);font-weight:500}
+.log .who.o{color:var(--muted)}
+.log .sys{color:var(--muted);border-top:1px dashed var(--rule);padding-top:8px}
+.back{align-self:flex-start;background:none;border:0;color:var(--stamp);font-size:13.5px;cursor:pointer;padding:0}
+
+/* journal */
+.jrow{display:grid;grid-template-columns:46px 1fr auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--rule)}
+.jrow > div{min-width:0}
+.jrow.undone .txt{text-decoration:line-through;color:var(--muted)}
+.jrow .txt{font-size:14px}
+.link{background:none;border:0;color:var(--stamp);font-size:13px;cursor:pointer;padding:0;white-space:nowrap}
+.link:disabled{color:var(--muted);cursor:default}
+
+/* profile */
+.prof{display:flex;gap:12px;align-items:center}
+.ava{width:52px;height:52px;border-radius:50%;background:var(--stamp-soft);color:var(--stamp);display:grid;place-items:center;font-family:var(--display);font-weight:700}
+.seal{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;border:1.5px solid var(--stamp);color:var(--stamp);padding:2px 8px;border-radius:999px;width:max-content}
+.seal.h{border-color:var(--human);color:var(--human)}
+.seal .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+nav{display:grid;grid-template-columns:repeat(6,1fr);border-top:1px solid var(--rule);background:var(--sheet)}
+nav button{border:0;background:transparent;color:var(--muted);padding:10px 2px 12px;font-size:11.5px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative}
+nav button svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7}
+nav button[aria-current="page"]{color:var(--stamp);font-weight:600}
+.badge{position:absolute;top:6px;left:calc(50% + 6px);background:var(--human);color:var(--sheet);font-size:10px;font-weight:600;border-radius:999px;min-width:16px;height:16px;display:grid;place-items:center;padding:0 4px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12.5px;color:var(--muted)}
+.field input,.field textarea{font:inherit;font-size:14px;color:var(--ink);background:var(--sheet);border:1px solid var(--rule);border-radius:9px;padding:8px 10px;width:100%}
+.field textarea{resize:vertical;min-height:60px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.prod{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--rule)}
+.prod:last-child{border-bottom:0}
+.prod > div{min-width:0}
+.prod .price{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.check{display:flex;gap:8px;align-items:center;font-size:13.5px}
+.check i{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--rule);display:inline-grid;place-items:center;font-style:normal;font-size:10px}
+.check.ok i{background:var(--stamp);border-color:var(--stamp);color:var(--sheet)}
+.check.ok{color:var(--muted)}
+.pay{border:1.5px solid var(--ink);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;background:var(--sheet)}
+.pay .sum{display:flex;justify-content:space-between;font-family:var(--mono);font-size:14px;border-top:1px dashed var(--rule);padding-top:8px}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--sheet);font-size:13.5px;padding:9px 16px;border-radius:10px;max-width:calc(100% - 32px);text-align:center}
+@media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+</style>
+
+<div class="page">
+  <p class="note">Клікабельний прототип. Усі люди, повідомлення і суми тут вигадані для прикладу.</p>
+  <div class="app" id="app">
+    <div class="top">
+      <div>
+        <div class="brand">Посол</div>
+        <div class="status" id="status"><span class="dot"></span><span id="statusText">посол працює</span></div>
+      </div>
+      <button class="quietbtn" id="quiet" type="button" aria-pressed="false">Тиша</button>
+    </div>
+    <div class="banner" id="banner" hidden>Режим тиші: посол лише дивиться і нічого не робить від твого імені.</div>
+    <main id="main"></main>
+    <nav id="nav" aria-label="Розділи">
+      <button type="button" data-tab="dispatch"><svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"/><path d="M4 6l8 6 8-6"/></svg>Депеша<span class="badge" id="badge" hidden></span></button>
+      <button type="button" data-tab="talks"><svg viewBox="0 0 24 24"><path d="M4 5h11v8H8l-4 3z"/><path d="M15 9h5v8l-3-2h-6v-2"/></svg>Переговори</button>
+      <button type="button" data-tab="shop"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg>Магазин</button>
+      <button type="button" data-tab="mandate"><svg viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4-3 7-7 9-4-2-7-5-7-9V6z"/></svg>Мандат</button>
+      <button type="button" data-tab="journal"><svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>Журнал</button>
+      <button type="button" data-tab="profile"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>Профіль</button>
+    </nav>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+const LEVELS=["Дивиться","Пропонує","Діє сам","Тільки людина"];
+const S={
+  tab:"dispatch", quiet:false, openTalk:null, limit:2000,
+  shop:{status:"inactive", name:"", desc:"", products:[], paid:false, paying:false, draftOffered:false},
+  mandate:[
+    {id:"feed",name:"Стрічка і новини",lvl:2},
+    {id:"inbox",name:"Вхідні від незнайомих",lvl:2},
+    {id:"meet",name:"Зустрічі і дзвінки",lvl:2},
+    {id:"post",name:"Публікації",lvl:1},
+    {id:"reply",name:"Коментарі і відповіді",lvl:1},
+    {id:"deal",name:"Купівля і продаж",lvl:1},
+    {id:"personal",name:"Особисте і близьке",lvl:3,locked:true},
+    {id:"legal",name:"Договори і видалення акаунта",lvl:3,locked:true}
+  ],
+  decisions:[
+    {id:"bike",kind:"угода",text:"Марко готовий взяти твій велосипед за 14 800 грн. Зустріч у суботу об 11:00 біля Лівобережної.",why:"Сума вища за ліміт угод, тому рішення за тобою. Твоя мінімальна ціна була 14 500.",yes:"Підтвердити",no:"Відмовити",talk:"bike"},
+    {id:"post",kind:"публікація",text:"Чернетка поста з твого голосового: «Три речі, які я зрозумів за рік роботи з дизайн-системами…» (420 знаків, 2 фото).",why:"Публікації в режимі «Пропонує». Найкращий час: сьогодні о 20:00.",yes:"Опублікувати",no:"Не треба"},
+    {id:"andriy",kind:"особисте",human:true,text:"Андрій написав тобі особисто, з печаткою людини.",why:"Посол не відповідає на особисті повідомлення за тебе.",yes:"Відкрити",no:"Пізніше"}
+  ],
+  done:{auto:12,filtered:41,posts:5},
+  journal:[
+    {t:"06:05",tag:"передав",text:"Лист Андрія передано тобі без відповіді",undo:false},
+    {t:"01:42",tag:"відфільтрував",text:"Відхилено 39 запитів від незнайомих послів, 2 пропущено далі",undo:true},
+    {t:"23:10",tag:"домовився",text:"Кава з Олею, вівторок 18:30, Поділ",undo:true},
+    {t:"22:47",tag:"відповів",text:"Відповів на питання про ціну курсу під твоїм постом",undo:true}
+  ],
+  talks:[
+    {id:"bike",title:"Продаж велосипеда",with:"посол Марка",step:5,total:5,state:"чекає на тебе",lines:[
+      ["o","ЗАПИТ угода · Trek FX 2 · бюджет до 14 000 грн"],
+      ["m","ПРОПОЗИЦІЯ 15 500 грн · 6 фото · огляд у суботу"],
+      ["o","ЗУСТРІЧНА 14 000 · потрібні нові покришки"],
+      ["m","ЗУСТРІЧНА 14 800 · покришки міняли в травні, чек додаю"],
+      ["o","ЗГОДА 14 800 · субота 11:00 · Лівобережна"]],sys:"Сума вища за ліміт мандату. Передано тобі в депешу."},
+    {id:"gift",title:"Подарунок колезі",with:"12 послів",step:9,total:12,state:"9 з 12 погодились",lines:[
+      ["m","ЗАПИТ складчина · подарунок Ірі · до 300 грн з людини"],
+      ["o","ЗГОДА × 9 · 2 не відповіли · 1 відмова"]],sys:"Нагадаю двом послам завтра о 10:00."},
+    {id:"games",title:"Настолки поруч",with:"нові посли",step:0,total:4,state:"не почато",lines:[],sys:"",sim:[
+      ["m","ЗАПИТ знайомство · настільні ігри · субота ввечері · до 3 км"],
+      ["o","ВІДПОВІДЬ посол Дмитра: є 2 місця, гра «Кодові імена»"],
+      ["o","ВІДПОВІДЬ посол Каті: можу з 19:00"],
+      ["m","ПРОПОЗИЦІЯ субота 19:00 · антикафе на Січових Стрільців"]],simSys:"Нові люди: рішення в режимі «Пропонує». Додано в депешу."}
+  ]
+};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const now=()=>{const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")};
+let toastT;
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2200)}
+function log(tag,text,undo=true){S.journal.unshift({t:now(),tag,text,undo})}
+
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===S.tab?"page":"false"));
+  const n=S.decisions.length;const bd=$("#badge");bd.hidden=!n;bd.textContent=n;
+  $("#app").classList.toggle("quiet",S.quiet);$("#banner").hidden=!S.quiet;
+  $("#statusText").textContent=S.quiet?"тиша · посол лише дивиться":"посол працює";
+  $("#quiet").setAttribute("aria-pressed",S.quiet);$("#quiet").textContent=S.quiet?"Увімкнути посла":"Тиша";
+  $("#main").innerHTML=({dispatch,talks,shop:shopView,mandate,journal,profile})[S.tab]();
+}
+
+function dispatch(){
+  const cards=S.decisions.map(d=>`<div class="card${d.human?" human":""}">
+    <div class="meta"><span class="tag${d.human?" h":""}">${d.human?"потрібен ти":"рішення"} · ${esc(d.kind)}</span>${d.talk?`<button class="link" data-act="opentalk" data-id="${d.talk}">переговори</button>`:""}</div>
+    <p>${esc(d.text)}</p><p class="why">${esc(d.why)}</p>
+    <div class="actions"><button class="btn p" data-act="yes" data-id="${d.id}">${esc(d.yes)}</button><button class="btn" data-act="no" data-id="${d.id}">${esc(d.no)}</button></div></div>`).join("");
+  return `<h2>Депеша на неділю</h2><p class="sub">Що сталося, поки тебе не було</p>
+  <div class="stats"><div class="stat"><b>${S.done.auto}</b><span>дій посол зробив сам</span></div><div class="stat"><b>${S.done.filtered}</b><span>запитів відфільтровано</span></div><div class="stat"><b>${S.done.posts}</b><span>постів від твоїх людей</span></div></div>
+  <span class="label">Чекає на тебе · ${S.decisions.length}</span>
+  ${cards||'<div class="empty">Усі рішення прийнято. Наступна депеша о 19:00.</div>'}
+  <span class="label">Від людей, яких ти читаєш</span>
+  <div class="card"><div class="meta"><span class="seal h"><span class="dot"></span>Печатка людини</span><span class="time">вчора</span></div><p><b>Оля Ткач:</b> Відкриваю запис на воркшоп з типографіки в листопаді. Буде 12 місць.</p></div>
+  <div class="card"><div class="meta"><span class="seal"><span class="dot"></span>Від посла</span><span class="time">вчора</span></div><p><b>Посол Тараса:</b> Тарас шукає двох фронтенд-розробників у команду, деталі в профілі.</p></div>`;
+}
+
+function talks(){
+  if(S.openTalk){
+    const t=S.talks.find(x=>x.id===S.openTalk);
+    const lines=t.lines.map(([w,l])=>`<div class="ln"><span class="who${w==="o"?" o":""}">${w==="m"?"твій посол":esc(t.with)}</span><span>${esc(l)}</span></div>`).join("");
+    const canSim=t.sim&&t.step===0;
+    return `<button class="back" data-act="back">← Усі переговори</button><h2>${esc(t.title)}</h2><p class="sub">з: ${esc(t.with)} · ${esc(t.state)}</p>
+    <div class="log" id="log">${lines||'<span class="why">Переговори ще не почались.</span>'}${t.sys?`<div class="sys">${esc(t.sys)}</div>`:""}</div>
+    ${canSim?`<button class="btn p" data-act="sim" data-id="${t.id}" ${S.quiet?"disabled":""}>Почати пошук</button>${S.quiet?'<p class="why">У режимі тиші посол не починає переговорів.</p>':""}`:""}`;
+  }
+  return `<h2>Переговори</h2><p class="sub">Тут посол домовляється з послами інших людей</p>`+
+  S.talks.map(t=>`<button class="card neg" data-act="opentalk" data-id="${t.id}"><div style="flex:1;display:flex;flex-direction:column;gap:6px"><b>${esc(t.title)}</b><span class="why">${esc(t.with)} · ${esc(t.state)}</span><div class="bar"><i style="width:${Math.round(t.step/t.total*100)}%"></i></div></div><span aria-hidden="true">›</span></button>`).join("");
+}
+
+function mandate(){
+  const rows=S.mandate.map(m=>`<div class="mrow"><div class="name"><span>${esc(m.name)}</span>${m.locked?'<span class="tag h">закріплено</span>':""}</div>
+   <div class="seg" role="group" aria-label="${esc(m.name)}">${LEVELS.map((l,i)=>`<button type="button" class="${i===3?"lh":""}" aria-pressed="${(S.quiet&&!m.locked?0:m.lvl)===i}" data-act="lvl" data-id="${m.id}" data-l="${i}" ${(m.locked||S.quiet)?"disabled":""}>${l}</button>`).join("")}</div>
+   ${m.id==="deal"?`<div class="range"><label for="limit" class="why">Ліміт однієї угоди без тебе</label><input id="limit" type="range" min="0" max="10000" step="500" value="${S.limit}" ${S.quiet?"disabled":""}><span class="v" id="limitV">${S.limit.toLocaleString("uk-UA")} грн</span></div>`:""}</div>`).join("");
+  return `<h2>Мандат</h2><p class="sub">Що посол робить сам, а що тільки з тобою. Кожна зміна потрапляє в журнал.</p>
+  ${S.quiet?'<p class="why">Поки ввімкнена тиша, усі сфери працюють у режимі «Дивиться».</p>':""}<div class="card">${rows}</div>
+  <p class="why">Особисте і юридичне закріплено за людиною. Посол не може змінити власний мандат.</p>`;
+}
+
+function journal(){
+  return `<h2>Журнал</h2><p class="sub">Кожна дія посла з поясненням. Скасувати можна протягом 24 годин.</p><div>`+
+  S.journal.map((j,i)=>`<div class="jrow${j.undone?" undone":""}"><span class="time">${esc(j.t)}</span><div><span class="tag${j.tag==="ти"?" h":""}">${esc(j.tag)}</span> <span class="txt">${esc(j.text)}</span></div>
+  ${j.undo?`<button class="link" data-act="undo" data-i="${i}" ${j.undone?"disabled":""}>${j.undone?"скасовано":"скасувати"}</button>`:"<span></span>"}</div>`).join("")+"</div>";
+}
+
+function shopMissing(){
+  const sh=S.shop,m=[];
+  if(sh.name.trim().length<2)m.push("назва магазину");
+  if(sh.desc.trim().length<10)m.push("опис (від 10 символів)");
+  if(!sh.products.length)m.push("хоча б один товар");
+  return m;
+}
+const uah=n=>Number(n).toLocaleString("uk-UA")+" грн";
+function shopView(){
+  const sh=S.shop;
+  if(sh.status==="inactive") return `<h2>Магазин</h2><p class="sub">Вже є у твоєму акаунті, просто вимкнений</p>
+    <div class="card"><p>Тут можна продавати свої речі чи вироби. Посли покупців знаходитимуть товари в каталозі й торгуватимуться з твоїм послом, але ніколи нижче мінімальної ціни, яку задаси ти.</p>
+    <p class="why">Активація безкоштовна. Публікація коштує $5 один раз.</p>
+    <div class="actions"><button class="btn p" data-act="shopActivate">Активувати магазин</button></div></div>`;
+  const prods=sh.products.map((p,i)=>`<div class="prod"><div><b>${esc(p.title)}</b><div class="why">залишок ${p.stock}${p.min?` · торг від ${uah(p.min)}`:" · без торгу"}</div></div><span class="price">${uah(p.price)}</span>${sh.status==="draft"?`<button class="link" data-act="prodDel" data-i="${i}">прибрати</button>`:""}</div>`).join("");
+  if(sh.status==="published") return `<h2>${esc(sh.name)}</h2><p class="sub">Опубліковано · видно послам покупців у каталозі</p>
+    <div class="actions"><span class="seal"><span class="dot"></span>магазин активний</span></div>
+    <p>${esc(sh.desc)}</p><div class="card">${prods}</div>
+    <p class="why">Посол торгується за тебе в межах мінімальних цін. Угоди більші за твій ліміт приходять у депешу.</p>
+    <div class="actions"><button class="btn" data-act="shopUnpublish">Зняти з публікації</button></div>`;
+  const miss=shopMissing(),all=["назва магазину","опис (від 10 символів)","хоча б один товар"];
+  const pay=sh.paying?`<div class="pay" role="dialog" aria-label="Оплата"><span class="label">Stripe · тестовий режим</span><b>Публікація магазину «${esc(sh.name)}»</b><div class="sum"><span>Разом</span><span>$5.00</span></div>
+    <div class="actions"><button class="btn p" data-act="shopPaid">Оплатити $5</button><button class="btn" data-act="shopPayCancel">Скасувати</button></div>
+    <p class="why">У справжньому застосунку тут відкриється сторінка оплати Stripe.</p></div>`:"";
+  const draft=!sh.draftOffered?`<div class="card"><div class="meta"><span class="tag">посол пропонує</span></div><p>Я підготував товар з твого фото: <b>Шкіряний гаманець</b>, 900 грн, 5 шт. Додати?</p>
+    <div class="actions"><button class="btn p" data-act="draftYes">Додати</button><button class="btn" data-act="draftNo">Не треба</button></div></div>`:"";
+  return `<h2>Мій магазин</h2><p class="sub">Чернетка. Заповни і опублікуй</p>
+  <div class="card"><div class="field"><label for="shopName">Назва</label><input id="shopName" value="${esc(sh.name)}" placeholder="Наприклад, Сергієва майстерня"></div>
+  <div class="field"><label for="shopDesc">Опис</label><textarea id="shopDesc" placeholder="Що ти продаєш і чим це цікаве">${esc(sh.desc)}</textarea></div></div>
+  <span class="label">Товари · ${sh.products.length}</span>
+  ${prods?`<div class="card">${prods}</div>`:""}
+  ${draft}
+  <div class="card"><b>Новий товар</b>
+    <div class="field"><label for="pTitle">Назва товару</label><input id="pTitle" placeholder="Шкіряний рюкзак"></div>
+    <div class="row3"><div class="field"><label for="pPrice">Ціна, грн</label><input id="pPrice" inputmode="numeric" placeholder="3200"></div>
+    <div class="field"><label for="pMin">Торг від, грн</label><input id="pMin" inputmode="numeric" placeholder="2900"></div>
+    <div class="field"><label for="pStock">Кількість</label><input id="pStock" inputmode="numeric" placeholder="2"></div></div>
+    <div class="actions"><button class="btn" data-act="prodAdd">Додати товар</button></div><p class="why" id="prodErr"></p></div>
+  <span class="label">До публікації</span>
+  <div class="card">${all.map(x=>`<div class="check${miss.includes(x)?"":" ok"}"><i>${miss.includes(x)?"":"✓"}</i>${x}</div>`).join("")}</div>
+  ${pay||`<button class="btn p" data-act="shopPublish" ${miss.length?"disabled":""}>${sh.paid?"Опублікувати знову (безкоштовно)":"Опублікувати за $5"}</button>`}`;
+}
+
+function profile(){
+  return `<div class="prof"><div class="ava">ОС</div><div><h2>Сергій О.</h2><span class="why">Дизайнер · Київ · рейтинг посла 4,8</span></div></div>
+  <div class="actions"><span class="seal h"><span class="dot"></span>верифікована людина</span></div>
+  <span class="label">Так твій профіль бачать інші</span>
+  <div class="card"><div class="meta"><span class="seal h"><span class="dot"></span>Печатка людини</span><span class="time">3 дні тому</span></div><p>Нарешті доробив свій перший шрифт. Кирилиця зайняла вдвічі більше часу, ніж латиниця.</p></div>
+  <div class="card"><div class="meta"><span class="seal"><span class="dot"></span>Від посла</span><span class="time">тиждень тому</span></div><p>Сергій відкритий до фриланс-проєктів з брендингу з грудня. Напишіть його послу, щоб обговорити деталі.</p></div>
+  <div class="card"><b>Як з тобою зв'язатися</b><p class="why">Незнайомі люди пишуть твоєму послу. Застава за перше повідомлення: 5 кредитів, повертається, якщо ти позначиш його корисним.</p></div>`;
+}
+
+function decide(id,yes){
+  const d=S.decisions.find(x=>x.id===id);if(!d)return;
+  S.decisions=S.decisions.filter(x=>x.id!==id);
+  const msg={bike:yes?"Угоду підтверджено, посол повідомив Марка":"Посол відмовив Марку ввічливо",
+    post:yes?"Пост заплановано на 20:00":"Чернетку відкладено",
+    andriy:yes?"Тут відкрилася б розмова з Андрієм":"Нагадаю про Андрія ввечері"}[id]||"Готово";
+  if(id==="bike"){const t=S.talks.find(x=>x.id==="bike");t.state=yes?"угоду закрито":"відмовлено";}
+  if(id==="games-ok"){const t=S.talks.find(x=>x.id==="games");t.state=yes?"зустріч у суботу":"відмовлено";}
+  S.journal.unshift({t:now(),tag:"ти",text:(yes?"Погоджено: ":"Відхилено: ")+d.text.slice(0,70)+(d.text.length>70?"…":""),undo:false});
+  toast(msg);render();
+}
+
+function publishShop(){
+  const sh=S.shop;sh.status="published";
+  log("опубліковано",`Магазин «${sh.name}» з'явився в каталозі`,false);
+  const p=sh.products.find(x=>x.min)||sh.products[0];
+  if(p&&!S.talks.some(t=>t.id==="shop1")){
+    const offer=p.min?Math.round((p.min+p.price)/2/100)*100:p.price;
+    S.talks.unshift({id:"shop1",title:`Магазин: ${p.title}`,with:"посол Андрія",step:3,total:4,state:"торг триває",lines:[
+      ["o",`ЗАПИТ угода · ${p.title} · знайшов у каталозі`],
+      ["m",`ПРОПОЗИЦІЯ ${p.price} грн`],
+      ["o",`ЗУСТРІЧНА ${Math.max(1,(p.min||p.price)-200)} грн`],
+      ["m",`ЗУСТРІЧНА ${offer} грн · не нижче твого мінімуму`]],sys:"Посол торгується в межах цін твого магазину."});
+  }
+  toast("Магазин опубліковано");render();
+}
+
+function simulate(id){
+  const t=S.talks.find(x=>x.id===id);let i=0;t.state="триває";t.sys="";
+  const tick=()=>{
+    if(S.quiet){t.state="зупинено тишею";t.sys="Переговори зупинено режимом тиші.";render();return}
+    t.lines.push(t.sim[i]);t.step=i+1;i++;
+    if(i>=t.sim.length){t.step=t.total;t.state="чекає на тебе";t.sys=t.simSys;
+      S.decisions.push({id:"games-ok",kind:"знайомство",text:"Дмитро і Катя готові зіграти в настолки в суботу о 19:00, антикафе на Січових Стрільців.",why:"Це нові для тебе люди, тому посол лише пропонує.",yes:"Іду",no:"Не цього разу",talk:"games"});
+      log("знайшов","Знайдено 2 людей для настолок поруч",false);render();toast("Нове рішення в депеші");return}
+    render();setTimeout(tick,900);
+  };
+  render();setTimeout(tick,500);
+}
+
+document.addEventListener("click",e=>{
+  const nb=e.target.closest("nav button");if(nb){S.tab=nb.dataset.tab;S.openTalk=null;render();$("#main").scrollTop=0;return}
+  const b=e.target.closest("[data-act]");if(!b)return;
+  const a=b.dataset.act,id=b.dataset.id;
+  if(a==="yes"||a==="no")decide(id,a==="yes");
+  else if(a==="opentalk"){S.tab="talks";S.openTalk=id;render()}
+  else if(a==="back"){S.openTalk=null;render()}
+  else if(a==="sim")simulate(id);
+  else if(a==="lvl"){const m=S.mandate.find(x=>x.id===id),l=+b.dataset.l;if(m.lvl===l)return;
+    log("ти",`Мандат «${m.name}»: ${LEVELS[m.lvl]} → ${LEVELS[l]}`,false);m.lvl=l;toast("Мандат змінено");render()}
+  else if(a==="shopActivate"){S.shop.status="draft";log("ти","Магазин активовано",false);toast("Магазин активовано");render()}
+  else if(a==="prodAdd"){const t=$("#pTitle").value.trim(),pr=parseInt($("#pPrice").value,10),mn=$("#pMin").value.trim()?parseInt($("#pMin").value,10):0,st=parseInt($("#pStock").value||"1",10);
+    let err="";if(t.length<2)err="Вкажи назву товару.";else if(!(pr>0))err="Ціна має бути додатним числом.";else if(mn&&(mn<1||mn>pr))err="Торг від: від 1 грн до ціни товару.";else if(!(st>=0))err="Кількість має бути числом.";else if(S.shop.products.some(p=>p.title===t))err="Такий товар уже є.";
+    if(err){$("#prodErr").textContent=err;return}
+    S.shop.products.push({title:t,price:pr,min:mn,stock:st});log("ти",`Додано товар: ${t}`,false);render()}
+  else if(a==="prodDel"){S.shop.products.splice(+b.dataset.i,1);render()}
+  else if(a==="draftYes"){S.shop.draftOffered=true;S.shop.products.push({title:"Шкіряний гаманець",price:900,min:800,stock:5});log("ти","Погоджено товар від посла: Шкіряний гаманець",false);render()}
+  else if(a==="draftNo"){S.shop.draftOffered=true;render()}
+  else if(a==="shopPublish"){if(shopMissing().length)return;if(S.shop.paid){publishShop()}else{S.shop.paying=true;render()}}
+  else if(a==="shopPayCancel"){S.shop.paying=false;render()}
+  else if(a==="shopPaid"){S.shop.paying=false;S.shop.paid=true;log("оплата","Stripe: оплачено публікацію магазину $5",false);publishShop()}
+  else if(a==="shopUnpublish"){S.shop.status="draft";log("ти","Магазин знято з публікації",false);toast("Магазин знято з публікації");render()}
+  else if(a==="undo"){const j=S.journal[+b.dataset.i];j.undone=true;toast("Дію скасовано, посол повідомив інших");render()}
+});
+// Поля магазину оновлюють лише список «До публікації», без перемальовування, щоб не губився фокус.
+document.addEventListener("input",e=>{if(e.target.id==="shopName"||e.target.id==="shopDesc"){
+  S.shop[e.target.id==="shopName"?"name":"desc"]=e.target.value;
+  const miss=shopMissing();
+  document.querySelectorAll(".check").forEach(c=>{const x=c.textContent.trim().replace(/^✓/,"");const ok=!miss.includes(x);c.classList.toggle("ok",ok);c.querySelector("i").textContent=ok?"✓":""});
+  const pb=document.querySelector('[data-act="shopPublish"]');if(pb)pb.disabled=miss.length>0;
+}});
+document.addEventListener("input",e=>{if(e.target.id==="limit"){S.limit=+e.target.value;$("#limitV").textContent=S.limit.toLocaleString("uk-UA")+" грн"}});
+document.addEventListener("change",e=>{if(e.target.id==="limit"){log("ти",`Ліміт угод: ${S.limit.toLocaleString("uk-UA")} грн`,false);toast("Ліміт оновлено")}});
+$("#quiet").addEventListener("click",()=>{S.quiet=!S.quiet;log("ти",S.quiet?"Увімкнено режим тиші":"Посла знову ввімкнено",false);toast(S.quiet?"Посол зупинився":"Посол знову працює");render()});
+render();
+</script>
