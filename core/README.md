@@ -16,6 +16,7 @@
 | `src/stripe.ts` | Оплата публікації магазину через Stripe Checkout і перевірка підпису вебхука |
 | `src/network.ts` | Комутатор MVP: доставка повідомлень між послами і каталог опублікованих магазинів |
 | `src/embassy.ts` | Посольство: усе разом, плюс дії, які потребують підпису людини |
+| `src/state.ts` | Знімок стану посольства для бази і відновлення після перезапуску |
 
 ## Запуск
 
@@ -57,13 +58,13 @@ npm install && npm run typecheck   # перевірка типів (потріб
 
 - `STRIPE_SECRET_KEY` — секретний ключ (`sk_test_…` для тестів) з [Stripe Dashboard → Developers → API keys](https://dashboard.stripe.com/test/apikeys).
 - `STRIPE_WEBHOOK_SECRET` — секрет вебхука (`whsec_…`) після додавання ендпоінта з подією `checkout.session.completed`.
-- HTTP-ендпоінт для вебхука з'явиться разом із сервером API (наступний крок); він має передавати в `handleStripeWebhook` сире тіло запиту, не розібраний JSON.
+- HTTP-ендпоінт для вебхука є в `../server` (`POST /v1/stripe/webhook`).
 
 Для тестів і демо лишається `FakePaymentGateway`, який нічого не списує.
 
 ## Що далі
 
-1. API (Fastify) і PostgreSQL замість пам'яті.
+1. ~~API і PostgreSQL замість пам'яті~~ — готово, див. `../server`.
 2. Мозок на Claude API з тим самим інтерфейсом `Brain`.
 3. Зустрічі і знайомства в протоколі, не лише угоди.
 4. Застосунок на React Native за клікабельним прототипом.

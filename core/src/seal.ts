@@ -1,4 +1,4 @@
-import { createHash, generateKeyPairSync, sign, verify } from 'node:crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 
 // Хто підписав: людина (ключ на пристрої) чи посол (ключ на сервері).
@@ -18,6 +18,27 @@ export interface Signed<T> {
 
 export function newKeyPair(): KeyPair {
   return generateKeyPairSync('ed25519');
+}
+
+// Публічний ключ Ed25519 як 32 байти в base64url (поле x з JWK). Так його надсилає застосунок.
+export function exportPublicKey(key: KeyObject): string {
+  const x = key.export({ format: 'jwk' }).x;
+  if (!x) throw new Error('Це не ключ Ed25519');
+  return x;
+}
+
+export function importPublicKey(x: string): KeyObject {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(x)) throw new Error('Публічний ключ має бути 32 байти в base64url');
+  return createPublicKey({ key: { kty: 'OKP', crv: 'Ed25519', x }, format: 'jwk' });
+}
+
+export function exportPrivateKey(key: KeyObject): string {
+  return key.export({ format: 'pem', type: 'pkcs8' }).toString();
+}
+
+export function importKeyPair(privatePem: string): KeyPair {
+  const privateKey = createPrivateKey(privatePem);
+  return { privateKey, publicKey: createPublicKey(privateKey) };
 }
 
 // Стабільний JSON: ключі відсортовано, щоб підпис не залежав від порядку полів.

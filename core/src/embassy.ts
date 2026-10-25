@@ -17,12 +17,22 @@ import { StripeError, receiptFromCheckoutEvent, verifyStripeWebhook } from './st
 import type { CheckoutProvider } from './stripe.ts';
 import type { Decision, Intent, Mandate, PolicyContext } from './types.ts';
 
+// Дія посла як дані, а не замикання: її можна зберегти в базі й виконати після перезапуску.
+export type Action =
+  | { kind: 'none' }
+  | { kind: 'deliver'; thread: string }
+  | { kind: 'send'; thread: string; type: MsgType; terms: Terms }
+  | { kind: 'accept'; thread: string; priceUAH: number }
+  | { kind: 'commit'; thread: string }
+  | { kind: 'withdraw'; thread: string }
+  | { kind: 'addProduct'; product: Omit<Product, 'id'> };
+
 export interface Proposal {
   id: number;
   intent: Intent;
   createdAt: Date;
-  approve: () => void;
-  reject: () => void;
+  action: Action;
+  onReject: Action;
 }
 
 // Документи, які людина підписує ключем на своєму пристрої.
@@ -72,6 +82,8 @@ export interface EmbassyOptions {
   checkout?: CheckoutProvider;
   mandate?: Mandate;
   clock?: () => Date;
+  // Ключ посла, збережений раніше. Без нього посольство отримує новий.
+  agentKeys?: KeyPair;
 }
 
 export class Embassy implements Endpoint {
@@ -79,7 +91,7 @@ export class Embassy implements Endpoint {
   name: string;
   humanPublicKey: KeyObject;
   // Ключ посла живе тільки тут. Ключа людини посольство не має.
-  agentKeys: KeyPair = newKeyPair();
+  agentKeys: KeyPair;
   mandate: Mandate;
   quiet = false;
   trusted = new Set<string>();
@@ -101,6 +113,8 @@ export class Embassy implements Endpoint {
   threads = new Map<string, Thread>();
   myLastPrice = new Map<string, number>();
   commitments = new Map<string, Commitment>();
+  // Як скасувати виконані дії (номер запису журналу → дія). Зберігається разом зі станом.
+  undoActions = new Map<number, Action>();
   seq = 0;
   nextProposal = 1;
 
@@ -108,6 +122,7 @@ export class Embassy implements Endpoint {
     this.id = o.id;
     this.name = o.name;
     this.humanPublicKey = o.humanPublicKey;
+    this.agentKeys = o.agentKeys ?? newKeyPair();
     this.net = o.net;
     this.brain = o.brain ?? new SimpleNegotiator();
     this.mandate = o.mandate ?? defaultMandate();
@@ -132,20 +147,57 @@ export class Embassy implements Endpoint {
   }
 
   // Єдиний шлях, яким посол щось робить: намір → рушій політик → дія, депеша або відмова.
-  act(intent: Intent, perform: () => void, compensate?: () => void, onReject: () => void = () => {}): Decision {
+  act(intent: Intent, action: Action, undo?: Action, onReject: Action = { kind: 'none' }): Decision {
     const d = evaluate(intent, this.mandate, this.ctx());
     const base = { summary: intent.summary, reason: d.reason, rule: d.rule };
     if (d.verdict === 'execute') {
-      perform();
-      this.journal.record({ ...base, actor: 'agent', kind: 'executed', compensate });
+      this.run(action);
+      const entry = this.journal.record({ ...base, actor: 'agent', kind: 'executed', compensate: undo && (() => this.run(undo)) });
+      if (undo) this.undoActions.set(entry.id, undo);
     } else if (d.verdict === 'propose') {
       const id = this.nextProposal++;
-      this.proposals.set(id, { id, intent, createdAt: this.clock(), approve: perform, reject: onReject });
+      this.proposals.set(id, { id, intent, createdAt: this.clock(), action, onReject });
       this.journal.record({ ...base, actor: 'agent', kind: 'proposed' });
     } else {
       this.journal.record({ ...base, actor: 'agent', kind: 'denied' });
     }
     return d;
+  }
+
+  // Виконує дію. Сюди веде і рішення рушія, і згода людини з депеші.
+  run(a: Action): void {
+    switch (a.kind) {
+      case 'none':
+        return;
+      case 'deliver':
+        return this.net.send(this.thread(a.thread).messages[0]);
+      case 'send':
+        return this.sendRaw(this.thread(a.thread), a.type, a.terms);
+      case 'accept': {
+        const t = this.thread(a.thread);
+        this.sendRaw(t, 'ACCEPT', { ...t.lastTerms, priceUAH: a.priceUAH });
+        return this.commit(t, a.priceUAH);
+      }
+      case 'commit':
+        this.commitments.set(a.thread, 'committed');
+        return this.adjustStock(this.thread(a.thread), -1);
+      case 'withdraw': {
+        const t = this.thread(a.thread);
+        if (this.commitments.get(t.id) === 'committed') this.adjustStock(t, +1);
+        this.commitments.set(t.id, 'rejected');
+        if (t.state === 'agreed') this.sendRaw(t, 'WITHDRAW', {});
+        return;
+      }
+      case 'addProduct':
+        this.shop.addProduct(a.product);
+        return;
+    }
+  }
+
+  thread(id: string): Thread {
+    const t = this.threads.get(id);
+    if (!t) throw new ProtocolError(`Невідомий потік ${id}`);
+    return t;
   }
 
   // ---------- Дії людини (лише з її підписом) ----------
@@ -161,8 +213,7 @@ export class Embassy implements Endpoint {
     const p = this.proposals.get(d.proposal);
     if (!p) throw new AuthError('Такого рішення немає в депеші');
     this.proposals.delete(p.id);
-    if (d.approve) p.approve();
-    else p.reject();
+    this.run(d.approve ? p.action : p.onReject);
     this.journal.record({
       actor: 'human',
       kind: 'decided',
@@ -234,7 +285,7 @@ export class Embassy implements Endpoint {
     this.threadGoals.set(threadId, goal);
     this.act(
       { domain: 'deals', action: 'request', summary: `Запит продавцю ${sellerId}: ${goal.item}`, counterparty: sellerId, withinHumanGoal: true },
-      () => this.net.send(req),
+      { kind: 'deliver', thread: threadId },
     );
     return threadId;
   }
@@ -334,9 +385,7 @@ export class Embassy implements Endpoint {
     if (this.shop.status === 'inactive') throw new ShopError('Спершу активуй магазин');
     return this.act(
       { domain: 'posts', action: 'shop-draft', summary: `Додати в магазин: ${product.title} за ${product.priceUAH} грн` },
-      () => {
-        this.shop.addProduct(product);
-      },
+      { kind: 'addProduct', product },
     );
   }
 
@@ -433,14 +482,14 @@ export class Embassy implements Endpoint {
     if (!goal) {
       this.act(
         { domain: 'inbox', action: 'decline', summary: `Ввічливо відмовити ${m.from}: немає такої пропозиції`, counterparty: m.from },
-        () => this.sendRaw(t, 'DECLINE', {}),
+        { kind: 'send', thread: t.id, type: 'DECLINE', terms: {} },
       );
       return;
     }
     this.threadGoals.set(t.id, goal);
     this.act(
       { domain: 'deals', action: 'offer', summary: `Пропозиція ${m.from}: ${goal.item} за ${goal.targetUAH} грн`, counterparty: m.from, withinHumanGoal: true },
-      () => this.sendRaw(t, 'OFFER', { item: goal.item, priceUAH: goal.targetUAH }),
+      { kind: 'send', thread: t.id, type: 'OFFER', terms: { item: goal.item, priceUAH: goal.targetUAH } },
     );
   }
 
@@ -471,21 +520,20 @@ export class Embassy implements Endpoint {
 
     const who = m.from;
     if (move.type === 'ACCEPT') {
-      const d = this.act(
+      this.act(
         { domain: 'deals', action: 'accept', summary: `Згода з ${who} на ${their} грн`, counterparty: who, withinHumanGoal: true },
-        () => this.sendRaw(t, 'ACCEPT', { item: goal.item, priceUAH: their }),
+        { kind: 'accept', thread: t.id, priceUAH: their },
       );
-      if (d.verdict === 'execute') this.commit(t, their);
     } else if (move.type === 'COUNTER') {
       const price = move.priceUAH!;
       this.act(
         { domain: 'deals', action: 'counter', summary: `Зустрічна ${who}: ${price} грн`, counterparty: who, withinHumanGoal: true },
-        () => this.sendRaw(t, 'COUNTER', { item: goal.item, priceUAH: price }),
+        { kind: 'send', thread: t.id, type: 'COUNTER', terms: { item: goal.item, priceUAH: price } },
       );
     } else {
       this.act(
         { domain: 'deals', action: 'decline', summary: `Відмова ${who}: ціна поза межами`, counterparty: who, withinHumanGoal: true },
-        () => this.sendRaw(t, 'DECLINE', {}),
+        { kind: 'send', thread: t.id, type: 'DECLINE', terms: {} },
       );
     }
   }
@@ -494,11 +542,7 @@ export class Embassy implements Endpoint {
   commit(t: Thread, priceUAH: number): void {
     const goal = this.threadGoals.get(t.id);
     const who = this.other(t);
-    const withdraw = () => {
-      if (this.commitments.get(t.id) === 'committed') this.adjustStock(t, +1);
-      this.commitments.set(t.id, 'rejected');
-      if (t.state === 'agreed') this.sendRaw(t, 'WITHDRAW', {});
-    };
+    const withdraw: Action = { kind: 'withdraw', thread: t.id };
     this.commitments.set(t.id, 'pending_human');
     const d = this.act(
       {
@@ -508,14 +552,11 @@ export class Embassy implements Endpoint {
         counterparty: who,
         amountUAH: priceUAH,
       },
-      () => {
-        this.commitments.set(t.id, 'committed');
-        this.adjustStock(t, -1);
-      },
+      { kind: 'commit', thread: t.id },
       withdraw,
       withdraw,
     );
-    if (d.verdict === 'deny') withdraw();
+    if (d.verdict === 'deny') this.run(withdraw);
   }
 
   // Продаж товару з магазину змінює залишок; скасування повертає його.
