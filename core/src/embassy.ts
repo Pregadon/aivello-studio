@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { BoundsError, SimpleNegotiator, enforceBounds } from './brain.ts';
 import type { Brain, DealGoal, Move } from './brain.ts';
@@ -11,7 +12,9 @@ import type { Message, MsgType, Terms, Topic } from './protocol.ts';
 import { newKeyPair, signAs, verifySigned } from './seal.ts';
 import type { KeyPair, Signed } from './seal.ts';
 import { PUBLISH_FEE, Shop, ShopError } from './shop.ts';
-import type { PaymentGateway, Product, ShopProfile } from './shop.ts';
+import type { PaymentGateway, Product, Receipt, ShopProfile } from './shop.ts';
+import { StripeError, receiptFromCheckoutEvent, verifyStripeWebhook } from './stripe.ts';
+import type { CheckoutProvider } from './stripe.ts';
 import type { Decision, Intent, Mandate, PolicyContext } from './types.ts';
 
 export interface Proposal {
@@ -47,6 +50,14 @@ export type ShopCommand =
   | { embassy: string; op: 'publish' }
   | { embassy: string; op: 'unpublish' };
 
+// Людина погоджується заплатити $5 і опублікувати магазин.
+export interface ShopCheckoutRequest {
+  embassy: string;
+  op: 'checkout';
+  successUrl: string;
+  cancelUrl: string;
+}
+
 export type Commitment = 'pending_human' | 'committed' | 'rejected' | 'cancelled';
 
 export class AuthError extends Error {}
@@ -58,6 +69,7 @@ export interface EmbassyOptions {
   net: Switchboard;
   brain?: Brain;
   payments?: PaymentGateway;
+  checkout?: CheckoutProvider;
   mandate?: Mandate;
   clock?: () => Date;
 }
@@ -81,6 +93,9 @@ export class Embassy implements Endpoint {
   // Магазин є з коробки, але вимкнений, доки людина його не активує.
   shop: Shop;
   payments?: PaymentGateway;
+  checkout?: CheckoutProvider;
+  // Сесія Stripe Checkout, яку чекаємо після підпису людини.
+  pendingCheckout?: string;
   threadProducts = new Map<string, string>();
   threadGoals = new Map<string, DealGoal>();
   threads = new Map<string, Thread>();
@@ -99,6 +114,7 @@ export class Embassy implements Endpoint {
     this.clock = o.clock ?? (() => new Date());
     this.shop = new Shop(o.id);
     this.payments = o.payments;
+    this.checkout = o.checkout;
     this.journal = new Journal(this.clock);
     o.net.register(this);
   }
@@ -265,6 +281,51 @@ export class Embassy implements Endpoint {
     this.shop.publish(receipt);
     this.net.listShop(this.id, this.shop);
     note(`Магазин «${this.shop.profile!.name}» опубліковано`);
+  }
+
+  // Крок 1 справжньої оплати: людина підписує згоду, ми створюємо сторінку оплати Stripe.
+  // Повертає посилання на оплату або undefined, якщо $5 уже сплачено і магазин опубліковано одразу.
+  async startShopCheckout(signed: Signed<ShopCheckoutRequest>): Promise<string | undefined> {
+    const req = this.requireHuman(signed);
+    const gaps = this.shop.missing();
+    if (gaps.length) throw new ShopError(`Бракує: ${gaps.join(', ')}`);
+    const note = (summary: string): void => {
+      this.journal.record({ actor: 'human', kind: 'decided', summary, reason: 'Рішення людини' });
+    };
+    if (this.shop.feePaid) {
+      this.publishShop(note);
+      return undefined;
+    }
+    if (!this.checkout) throw new ShopError('Оплата недоступна: не підключено Stripe');
+    const session = await this.checkout.createCheckout({
+      embassy: this.id,
+      amountCents: PUBLISH_FEE.amountCents,
+      currency: PUBLISH_FEE.currency,
+      productName: `Публікація магазину «${this.shop.profile!.name}»`,
+      successUrl: req.successUrl,
+      cancelUrl: req.cancelUrl,
+      // Ключ з підпису людини: повтор того самого рішення не відкриє другу оплату.
+      idempotencyKey: `shop-publish-${createHash('sha256').update(signed.sig).digest('hex')}`,
+    });
+    this.pendingCheckout = session.id;
+    note(`Відкрито оплату публікації: $${PUBLISH_FEE.amountCents / 100}`);
+    return session.url;
+  }
+
+  // Крок 2: перевірений вебхук Stripe підтвердив оплату. Публікуємо магазин.
+  completeShopCheckout(receipt: Receipt & { sessionId: string }): void {
+    if (receipt.embassy !== this.id) throw new ShopError('Оплата належить іншому посольству');
+    if (this.shop.receipt?.id === receipt.id) return; // Stripe може надіслати подію повторно.
+    if (!this.pendingCheckout || receipt.sessionId !== this.pendingCheckout) throw new ShopError('Невідома сесія оплати');
+    this.shop.publish(receipt);
+    this.pendingCheckout = undefined;
+    this.net.listShop(this.id, this.shop);
+    this.journal.record({
+      actor: 'system',
+      kind: 'executed',
+      summary: `Stripe підтвердив оплату $${receipt.amountCents / 100}, магазин «${this.shop.profile!.name}» опубліковано`,
+      reason: 'Вебхук Stripe',
+    });
   }
 
   // Посол може підготувати товар (наприклад, з фото і голосового). Товар — публічний контент,
@@ -495,4 +556,21 @@ export class HumanDevice {
   sign<T>(payload: T): Signed<T> {
     return signAs('human', payload, this.keys.privateKey);
   }
+}
+
+// Обробник вебхука Stripe для сервера: перевіряє підпис і передає оплату потрібному посольству.
+export function handleStripeWebhook(
+  rawBody: string,
+  signatureHeader: string,
+  endpointSecret: string,
+  findEmbassy: (id: string) => Embassy | undefined,
+  nowSec?: number,
+): 'published' | 'ignored' {
+  const event = verifyStripeWebhook(rawBody, signatureHeader, endpointSecret, nowSec);
+  const receipt = receiptFromCheckoutEvent(event);
+  if (!receipt) return 'ignored';
+  const embassy = findEmbassy(receipt.embassy);
+  if (!embassy) throw new StripeError(`Невідоме посольство в оплаті: ${receipt.embassy}`);
+  embassy.completeShopCheckout(receipt);
+  return 'published';
 }

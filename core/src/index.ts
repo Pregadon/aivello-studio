@@ -7,4 +7,5 @@ export * from './attention.ts';
 export * from './brain.ts';
 export * from './network.ts';
 export * from './shop.ts';
+export * from './stripe.ts';
 export * from './embassy.ts';
