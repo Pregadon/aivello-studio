@@ -9,7 +9,7 @@ export interface Endpoint {
   id: string;
   agentPublicKey: KeyObject;
   isTrusted(embassyId: string): boolean;
-  receive(msg: Signed<Message>): void;
+  receive(msg: Signed<Message>): void | Promise<void>;
 }
 
 export class NetworkError extends Error {}
@@ -79,13 +79,14 @@ export class Switchboard {
   }
 
   // Доставляє чергу. limit дозволяє доставити лише кілька повідомлень (для тестів і покрокового демо).
-  flush(limit = Infinity): number {
+  // Відповіді доставляються по одній: поки мозок посла думає, наступне повідомлення чекає.
+  async flush(limit = Infinity): Promise<number> {
     let n = 0;
     while (this.queue.length > 0 && n < limit) {
       if (++n > 10_000) throw new NetworkError('Забагато повідомлень за один прохід');
       const msg = this.queue.shift()!;
       this.trace.push(msg);
-      this.endpoints.get(msg.payload.to)!.receive(msg);
+      await this.endpoints.get(msg.payload.to)!.receive(msg);
     }
     return n;
   }

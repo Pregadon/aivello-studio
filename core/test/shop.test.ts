@@ -21,7 +21,7 @@ function readyShop() {
   return s;
 }
 
-test('магазин є з коробки, але вимкнений до активації', () => {
+test('магазин є з коробки, але вимкнений до активації', async () => {
   const { olia, cmd } = setup();
   assert.equal(olia.shop.status, 'inactive');
   assert.throws(() => cmd({ op: 'add', product: bag }), ShopError);
@@ -30,7 +30,7 @@ test('магазин є з коробки, але вимкнений до акт
   assert.throws(() => cmd({ op: 'activate' }), ShopError);
 });
 
-test('публікація показує, чого бракує, і списує $5 один раз', () => {
+test('публікація показує, чого бракує, і списує $5 один раз', async () => {
   const { olia, pay, cmd } = setup();
   cmd({ op: 'activate' });
   assert.throws(() => cmd({ op: 'publish' }), /назва й опис магазину, хоча б один товар/);
@@ -49,7 +49,7 @@ test('публікація показує, чого бракує, і спису�
   assert.equal(pay.charges.length, 1);
 });
 
-test('без платіжного шлюзу опублікувати не можна', () => {
+test('без платіжного шлюзу опублікувати не можна', async () => {
   const net = new Switchboard();
   const phone = new HumanDevice('Оля');
   const olia = new Embassy({ id: 'olia', name: 'Оля', humanPublicKey: phone.publicKey, net });
@@ -60,7 +60,7 @@ test('без платіжного шлюзу опублікувати не мо�
   assert.throws(() => cmd({ op: 'publish' }), /платіжний шлюз/);
 });
 
-test('керувати магазином і платити може лише людина', () => {
+test('керувати магазином і платити може лише людина', async () => {
   const { olia, pay } = setup();
   const byAgent = signAs('agent', { embassy: 'olia', op: 'activate' as const }, olia.agentKeys.privateKey);
   assert.throws(() => olia.manageShop(byAgent), AuthError);
@@ -69,7 +69,7 @@ test('керувати магазином і платити може лише л
   assert.equal(pay.charges.length, 0);
 });
 
-test('товари перевіряються', () => {
+test('товари перевіряються', async () => {
   const s = new Shop('x');
   s.activate();
   assert.throws(() => s.addProduct({ ...bag, priceUAH: -1 }), ShopError);
@@ -79,7 +79,7 @@ test('товари перевіряються', () => {
   assert.throws(() => s.addProduct(bag), /вже є/);
 });
 
-test('посол готує товар, але додає його лише після згоди людини', () => {
+test('посол готує товар, але додає його лише після згоди людини', async () => {
   const { olia, phone, cmd } = setup();
   cmd({ op: 'activate' });
   const d = olia.draftProduct({ title: 'Гаманець', description: 'Шкіра, на 6 карток', priceUAH: 900, stock: 5 });
@@ -90,7 +90,7 @@ test('посол готує товар, але додає його лише пі
   assert.equal(olia.shop.products.size, 1);
 });
 
-test('каталог і торг: посол покупця знаходить товар і купує в межах ціни', () => {
+test('каталог і торг: посол покупця знаходить товар і купує в межах ціни', async () => {
   const { net, olia, cmd } = readyShop();
   // Оля дозволила послу закривати угоди до 5 000 грн без неї.
   olia.mandate = { ...olia.mandate, deals: { level: 2, maxAmountUAH: 5000 } };
@@ -110,7 +110,7 @@ test('каталог і торг: посол покупця знаходить �
     buyerPhone.sign({ embassy: 'andrii', goal: { role: 'buyer', item: found[0].product.title, targetUAH: 2700, limitUAH: 3100 } }),
     found[0].embassy,
   );
-  net.flush();
+  await net.flush();
 
   assert.equal(olia.commitments.get(thread), 'committed');
   assert.equal(andrii.commitments.get(thread), 'committed');
@@ -119,7 +119,7 @@ test('каталог і торг: посол покупця знаходить �
   assert.equal([...olia.shop.products.values()][0].stock, 1);
 });
 
-test('неопублікований магазин нічого не продає', () => {
+test('неопублікований магазин нічого не продає', async () => {
   const { net, olia } = readyShop();
   assert.equal(net.searchProducts('рюкзак').length, 0);
   const phone = new HumanDevice('Андрій');
@@ -129,7 +129,7 @@ test('неопублікований магазин нічого не прода
     phone.sign({ embassy: 'andrii', goal: { role: 'buyer', item: bag.title, targetUAH: 2700, limitUAH: 3100 } }),
     'olia',
   );
-  net.flush();
+  await net.flush();
   assert.equal(andrii.threads.get(thread)!.state, 'declined');
   assert.equal(olia.commitments.size, 0);
 });

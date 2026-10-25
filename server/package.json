@@ -14,7 +14,9 @@
     "typecheck": "tsc"
   },
   "dependencies": {
-    "pg": "^8.13.0"
+    "@anthropic-ai/sdk": "^1.3.0",
+    "pg": "^8.13.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

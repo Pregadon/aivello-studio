@@ -25,7 +25,7 @@ import type { Brain, DealGoal, Intent, Message, PolicyContext } from '../src/ind
 
 const ctx = (over: Partial<PolicyContext> = {}): PolicyContext => ({ quiet: false, isTrusted: () => true, ...over });
 
-test('рушій політик: рівні мандату дають три різні вердикти', () => {
+test('рушій політик: рівні мандату дають три різні вердикти', async () => {
   const m = defaultMandate();
   const feed: Intent = { domain: 'feed', action: 'hide', summary: 'сховати дубль' };
   const post: Intent = { domain: 'posts', action: 'publish', summary: 'пост' };
@@ -35,7 +35,7 @@ test('рушій політик: рівні мандату дають три р�
   assert.equal(evaluate(personal, m, ctx()).verdict, 'deny');
 });
 
-test('рушій політик: ліміт суми і коло довіри переводять дію в депешу', () => {
+test('рушій політик: ліміт суми і коло довіри переводять дію в депешу', async () => {
   const m = { ...defaultMandate(), deals: { level: 2 as const, maxAmountUAH: 2000 } };
   const small: Intent = { domain: 'deals', action: 'commit', summary: 'книга', amountUAH: 300 };
   const big: Intent = { ...small, summary: 'велосипед', amountUAH: 14800 };
@@ -46,14 +46,14 @@ test('рушій політик: ліміт суми і коло довіри п
   assert.equal(evaluate(meet, m, ctx({ isTrusted: () => false })).rule, 'outside-circle');
 });
 
-test('рушій політик: тиша блокує все, крім читання, і перемагає навіть ціль людини', () => {
+test('рушій політик: тиша блокує все, крім читання, і перемагає навіть ціль людини', async () => {
   const m = defaultMandate();
   const q = ctx({ quiet: true });
   assert.equal(evaluate({ domain: 'feed', action: 'read', summary: 'читати', readOnly: true }, m, q).verdict, 'execute');
   assert.equal(evaluate({ domain: 'deals', action: 'counter', summary: 'торг', withinHumanGoal: true }, m, q).verdict, 'deny');
 });
 
-test('мандат змінює тільки людина, і лише незакріплені сфери', () => {
+test('мандат змінює тільки людина, і лише незакріплені сфери', async () => {
   const net = new Switchboard();
   const phone = new HumanDevice('Оля');
   const e = new Embassy({ id: 'olia', name: 'Оля', humanPublicKey: phone.publicKey, net });
@@ -71,7 +71,7 @@ test('мандат змінює тільки людина, і лише неза�
   assert.throws(() => e.changeMandate(phone.sign({ embassy: 'olia', domain: 'personal', rule: { level: 2 } })), MandateError);
 });
 
-test('печатка людини: перевіряється текстом і ключем, підпис посла не проходить', () => {
+test('печатка людини: перевіряється текстом і ключем, підпис посла не проходить', async () => {
   const human = newKeyPair();
   const agent = newKeyPair();
   const text = 'Нарешті доробив свій перший шрифт.';
@@ -83,7 +83,7 @@ test('печатка людини: перевіряється текстом і 
   assert.ok(!verifySigned({ ...agentSig, signer: 'human' }, agent.publicKey, 'human'));
 });
 
-test('журнал: скасування працює 24 години і лише один раз', () => {
+test('журнал: скасування працює 24 години і лише один раз', async () => {
   let now = new Date('2026-10-25T10:00:00Z');
   const j = new Journal(() => now);
   let undone = 0;
@@ -97,7 +97,7 @@ test('журнал: скасування працює 24 години і лиш�
   assert.throws(() => j.undo(late.id), JournalError);
 });
 
-test('протокол: послідовність повідомлень і межа раундів', () => {
+test('протокол: послідовність повідомлень і межа раундів', async () => {
   const keys = newKeyPair();
   let n = 0;
   const msg = (from: string, type: Message['type'], price?: number) =>
@@ -114,7 +114,7 @@ test('протокол: послідовність повідомлень і м�
   assert.throws(() => t.apply(msg('a', 'COUNTER', 200)), ProtocolError);
 });
 
-test('запобіжник торгу: хід поза межею людини блокується', () => {
+test('запобіжник торгу: хід поза межею людини блокується', async () => {
   const goal: DealGoal = { role: 'seller', item: 'bike', targetUAH: 15500, limitUAH: 14500 };
   assert.throws(() => enforceBounds(goal, 9000, { type: 'ACCEPT' }), BoundsError);
   assert.throws(() => enforceBounds(goal, 14000, { type: 'COUNTER', priceUAH: 9000 }), BoundsError);
@@ -137,10 +137,10 @@ function setup(sellerBrain?: Brain) {
   return { net, sPhone, bPhone, seller, buyer, start };
 }
 
-test('посол з послом: угода в межах обох цілей, продавцю потрібне рішення людини', () => {
+test('посол з послом: угода в межах обох цілей, продавцю потрібне рішення людини', async () => {
   const { net, sPhone, seller, buyer, start } = setup();
   const thread = start();
-  net.flush();
+  await net.flush();
 
   assert.equal(buyer.commitments.get(thread), 'committed');
   assert.equal(seller.commitments.get(thread), 'pending_human');
@@ -155,22 +155,22 @@ test('посол з послом: угода в межах обох цілей, 
   assert.equal(seller.commitments.get(thread), 'committed');
 });
 
-test('посол з послом: відмова людини відкликає угоду в обох', () => {
+test('посол з послом: відмова людини відкликає угоду в обох', async () => {
   const { net, sPhone, seller, buyer, start } = setup();
   const thread = start();
-  net.flush();
+  await net.flush();
   const [p] = seller.proposals.values();
   seller.decide(sPhone.sign({ embassy: 'serhii', proposal: p.id, approve: false }));
-  net.flush();
+  await net.flush();
   assert.equal(seller.commitments.get(thread), 'rejected');
   assert.equal(buyer.commitments.get(thread), 'cancelled');
 });
 
-test('зламаний мозок не може продати дешевше межі людини', () => {
+test('зламаний мозок не може продати дешевше межі людини', async () => {
   const gullible: Brain = { nextMove: () => ({ type: 'ACCEPT' }) };
   const { net, seller, start } = setup(gullible);
   const thread = start();
-  net.flush();
+  await net.flush();
   assert.ok(seller.journal.entries.some((e) => e.rule === 'bounds'), 'запобіжник мав спрацювати');
   for (const s of net.trace) {
     if (s.payload.from === 'serhii' && s.payload.type === 'ACCEPT') {
@@ -180,19 +180,19 @@ test('зламаний мозок не може продати дешевше м
   assert.notEqual(seller.commitments.get(thread), 'committed');
 });
 
-test('тиша: посол відкликає переговори і більше не торгується', () => {
+test('тиша: посол відкликає переговори і більше не торгується', async () => {
   const { net, sPhone, seller, start } = setup();
   start();
   // Доставляємо лише REQUEST: продавець відповідає OFFER і чекає.
-  net.flush(1);
+  await net.flush(1);
   seller.setQuiet(sPhone.sign({ embassy: 'serhii', quiet: true }));
-  net.flush();
+  await net.flush();
   const sent = net.trace.filter((s) => s.payload.from === 'serhii').map((s) => s.payload.type);
   assert.deepEqual(sent.slice(-1), ['WITHDRAW']);
   assert.ok(!sent.includes('ACCEPT'));
 });
 
-test('застава: незнайомцю без кредитів написати не можна', () => {
+test('застава: незнайомцю без кредитів написати не можна', async () => {
   const { net, buyer, start } = setup();
   net.ledger.balances.set('marko', 0);
   assert.throws(() => start(), AttentionError);

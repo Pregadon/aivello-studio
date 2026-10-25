@@ -13,7 +13,7 @@ import {
   snapshotLedger,
   verifySigned,
 } from '../../core/src/index.ts';
-import type { CheckoutProvider, Signed } from '../../core/src/index.ts';
+import type { Brain, CheckoutProvider, Signed } from '../../core/src/index.ts';
 import type { Commit, Store, StoredEmbassy } from './store.ts';
 import type { Vault } from './vault.ts';
 
@@ -35,6 +35,8 @@ export interface WorldOptions {
   store: Store;
   vault: Vault;
   checkout?: CheckoutProvider;
+  // Мозок усіх послів. Без нього — простий алгоритм торгу з ядра.
+  brain?: Brain;
   clock?: () => Date;
 }
 
@@ -44,6 +46,7 @@ export class World {
   store: Store;
   vault: Vault;
   checkout?: CheckoutProvider;
+  brain?: Brain;
   clock: () => Date;
   net: Switchboard;
   embassies = new Map<string, Embassy>();
@@ -56,6 +59,7 @@ export class World {
     this.store = o.store;
     this.vault = o.vault;
     this.checkout = o.checkout;
+    this.brain = o.brain;
     this.clock = o.clock ?? (() => new Date());
     this.net = new Switchboard(this.clock);
   }
@@ -74,7 +78,7 @@ export class World {
     this.net.endpoints.delete(s.id);
     this.net.unlistShop(s.id);
     const agentKeys = importKeyPair(this.vault.open(s.agentKeyEnc, s.id));
-    const e = restoreEmbassy(s.state, { net: this.net, agentKeys, checkout: this.checkout, clock: this.clock });
+    const e = restoreEmbassy(s.state, { net: this.net, agentKeys, checkout: this.checkout, brain: this.brain, clock: this.clock });
     this.embassies.set(s.id, e);
     this.saved.set(s.id, s);
     return e;
@@ -114,7 +118,8 @@ export class World {
       const touched = new Set(touch);
       try {
         const result = await fn();
-        this.net.flush();
+        // Поки посли торгуються, черга запитів чекає: мозок на Claude робить це помітно довшим.
+        await this.net.flush();
         for (const s of this.net.trace) touched.add(s.payload.to).add(s.payload.from);
         this.net.trace = [];
         const changed: StoredEmbassy[] = [];
@@ -179,7 +184,7 @@ export class World {
         if (this.embassies.has(r.embassy)) throw new AuthError('Таке посольство вже існує');
         const e = new Embassy({
           id: r.embassy, name: r.name.trim(), humanPublicKey: humanKey, net: this.net,
-          agentKeys: newKeyPair(), checkout: this.checkout, clock: this.clock,
+          agentKeys: newKeyPair(), checkout: this.checkout, brain: this.brain, clock: this.clock,
         });
         this.embassies.set(e.id, e);
         this.net.ledger.credit(e.id, STARTER_CREDITS);

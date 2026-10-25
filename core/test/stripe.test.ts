@@ -85,7 +85,7 @@ test('Stripe: перевірений вебхук публікує магази�
   assert.equal(handleStripeWebhook(body, sign(body, now), SECRET, find, now), 'published');
 });
 
-test('Stripe: підроблений або застарілий вебхук відкидається', () => {
+test('Stripe: підроблений або застарілий вебхук відкидається', async () => {
   const body = paidEvent('cs_test_123', 'olia');
   const now = 1_790_000_100;
   assert.throws(() => verifyStripeWebhook(body, sign(body, now, 'whsec_wrong'), SECRET, now), StripeError);
@@ -108,7 +108,7 @@ test('Stripe: оплата за чужу сесію або меншу суму �
   assert.equal(olia.shop.status, 'draft');
 });
 
-test('Stripe: інші події та неоплачені сесії ігноруються', () => {
+test('Stripe: інші події та неоплачені сесії ігноруються', async () => {
   assert.equal(receiptFromCheckoutEvent({ id: 'e', type: 'payment_intent.created', data: { object: {} } }), undefined);
   const unpaid = JSON.parse(paidEvent('cs', 'olia'));
   unpaid.data.object.payment_status = 'unpaid';

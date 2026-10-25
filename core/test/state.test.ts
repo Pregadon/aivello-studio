@@ -24,7 +24,7 @@ function reboot(embassies: Embassy[], net: Switchboard) {
   return { net: net2, embassies: out };
 }
 
-function bikeDeal() {
+async function bikeDeal() {
   const net = new Switchboard();
   const sPhone = new HumanDevice('Сергій');
   const bPhone = new HumanDevice('Марко');
@@ -39,12 +39,12 @@ function bikeDeal() {
     bPhone.sign({ embassy: 'marko', goal: { role: 'buyer', item: 'bike', targetUAH: 14000, limitUAH: 15000 } }),
     'serhii',
   );
-  net.flush();
+  await net.flush();
   return { net, sPhone, bPhone, seller, buyer, thread };
 }
 
-test('стан: рішення, що чекає на людину, переживає перезапуск', () => {
-  const { net, sPhone, seller, buyer, thread } = bikeDeal();
+test('стан: рішення, що чекає на людину, переживає перезапуск', async () => {
+  const { net, sPhone, seller, buyer, thread } = await bikeDeal();
   assert.equal(seller.commitments.get(thread), 'pending_human');
 
   const { net: net2, embassies: [s2, b2] } = reboot([seller, buyer], net);
@@ -54,15 +54,15 @@ test('стан: рішення, що чекає на людину, пережи�
 
   const [p] = s2.proposals.values();
   s2.decide(sPhone.sign({ embassy: 'serhii', proposal: p.id, approve: false }));
-  net2.flush();
+  await net2.flush();
   assert.equal(s2.commitments.get(thread), 'rejected');
   assert.equal(b2.commitments.get(thread), 'cancelled');
   // Ключ посла той самий: інший посол прийняв його WITHDRAW після перезапуску.
   assert.equal(b2.threads.get(thread)!.state, 'withdrawn');
 });
 
-test('стан: скасування виконаної угоди працює і після перезапуску', () => {
-  const { net, buyer, seller, thread } = bikeDeal();
+test('стан: скасування виконаної угоди працює і після перезапуску', async () => {
+  const { net, buyer, seller, thread } = await bikeDeal();
   const done = buyer.journal.entries.find((e) => e.kind === 'executed' && e.undoUntil)!;
   const { embassies: [, b2] } = reboot([seller, buyer], net);
   b2.journal.undo(done.id);
@@ -70,7 +70,7 @@ test('стан: скасування виконаної угоди працює 
   assert.ok(b2.journal.entries.at(-1)!.summary.startsWith('Скасовано'));
 });
 
-test('стан: опублікований магазин знову в каталозі після перезапуску', () => {
+test('стан: опублікований магазин знову в каталозі після перезапуску', async () => {
   const net = new Switchboard();
   const phone = new HumanDevice('Оля');
   const olia = new Embassy({ id: 'olia', name: 'Оля', humanPublicKey: phone.publicKey, net, payments: new FakePaymentGateway() });

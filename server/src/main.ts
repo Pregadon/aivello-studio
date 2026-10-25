@@ -1,6 +1,7 @@
 // Запуск: DATABASE_URL=… POSOL_MASTER_KEY=… STRIPE_SECRET_KEY=… STRIPE_WEBHOOK_SECRET=… npm start
 import { createServer } from 'node:http';
 import { StripeCheckout } from '../../core/src/index.ts';
+import { ClaudeBrain } from './claude-brain.ts';
 import { createHandler } from './http.ts';
 import { PgStore } from './pg-store.ts';
 import { MemoryStore } from './store.ts';
@@ -26,7 +27,16 @@ const checkout = env.STRIPE_SECRET_KEY ? new StripeCheckout(env.STRIPE_SECRET_KE
 if (!checkout) console.warn('STRIPE_SECRET_KEY не задано: оплата публікації магазину недоступна.');
 if (!env.STRIPE_WEBHOOK_SECRET) console.warn('STRIPE_WEBHOOK_SECRET не задано: вебхук Stripe відповідатиме 503.');
 
-const world = await World.open({ store, vault: new Vault(env.POSOL_MASTER_KEY), checkout });
+// POSOL_BRAIN=claude вмикає мозок на Claude, simple — простий алгоритм. За замовчуванням Claude, якщо є ключ.
+const brainKind = env.POSOL_BRAIN ?? (env.ANTHROPIC_API_KEY ? 'claude' : 'simple');
+if (brainKind !== 'claude' && brainKind !== 'simple') {
+  console.error('POSOL_BRAIN має бути claude або simple');
+  process.exit(1);
+}
+const brain = brainKind === 'claude' ? new ClaudeBrain({ model: env.POSOL_MODEL }) : undefined;
+console.log(brain ? `Мозок послів: Claude (${brain.model})` : 'Мозок послів: простий алгоритм торгу');
+
+const world = await World.open({ store, vault: new Vault(env.POSOL_MASTER_KEY), checkout, brain });
 const server = createServer(createHandler({ world, stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET }));
 const port = Number(env.PORT ?? 8080);
 server.listen(port, () => console.log(`Посол слухає на :${port}, посольств: ${world.embassies.size}`));

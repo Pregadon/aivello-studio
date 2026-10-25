@@ -27,7 +27,8 @@ export interface NegotiationView {
 }
 
 export interface Brain {
-  nextMove(view: NegotiationView): Move;
+  // Мовна модель відповідає не одразу, тому хід може бути обіцянкою.
+  nextMove(view: NegotiationView): Move | Promise<Move>;
 }
 
 const acceptable = (goal: DealGoal, price: number): boolean =>
@@ -36,7 +37,7 @@ const acceptable = (goal: DealGoal, price: number): boolean =>
 const roundTo100 = (n: number): number => Math.round(n / 100) * 100;
 
 // Простий алгоритм торгу для MVP: кожен раунд зустрічаємось посередині.
-// Пізніше його замінить Claude з тим самим інтерфейсом.
+// Його ж посол використовує, якщо мовна модель не відповіла.
 export class SimpleNegotiator implements Brain {
   nextMove(v: NegotiationView): Move {
     const { goal, theirPriceUAH: p } = v;

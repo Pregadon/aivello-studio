@@ -72,6 +72,8 @@ export type Commitment = 'pending_human' | 'committed' | 'rejected' | 'cancelled
 
 export class AuthError extends Error {}
 
+const FALLBACK_BRAIN = new SimpleNegotiator();
+
 export interface EmbassyOptions {
   id: string;
   name: string;
@@ -425,7 +427,7 @@ export class Embassy implements Endpoint {
     this.net.send(signed);
   }
 
-  receive(signed: Signed<Message>): void {
+  async receive(signed: Signed<Message>): Promise<void> {
     const m = signed.payload;
     if (m.to !== this.id) return;
     if (!verifySigned(signed, this.net.publicKeyOf(m.from), 'agent')) {
@@ -451,10 +453,10 @@ export class Embassy implements Endpoint {
       summary: `${m.type} від ${m.from}${m.terms.priceUAH !== undefined ? `: ${m.terms.priceUAH} грн` : ''}`,
       reason: 'Вхідне повідомлення',
     });
-    this.respond(t, m);
+    await this.respond(t, m);
   }
 
-  respond(t: Thread, m: Message): void {
+  async respond(t: Thread, m: Message): Promise<void> {
     switch (m.type) {
       case 'REQUEST':
         return this.onRequest(t, m);
@@ -493,24 +495,23 @@ export class Embassy implements Endpoint {
     );
   }
 
-  onPrice(t: Thread, m: Message): void {
+  async onPrice(t: Thread, m: Message): Promise<void> {
     const goal = this.threadGoals.get(t.id);
     const their = m.terms.priceUAH;
     if (!goal || their === undefined) return;
 
+    const view = { goal, theirPriceUAH: their, myLastPriceUAH: this.myLastPrice.get(t.id), round: t.rounds, untrustedNote: m.note };
+    let proposed: Move;
+    try {
+      proposed = await this.brain.nextMove(view);
+    } catch (e) {
+      // Мозок недоступний (мережа, ліміти моделі): хід робить простий алгоритм, а людина бачить це в журналі.
+      this.journal.record({ actor: 'system', kind: 'denied', summary: 'Мозок посла не відповів', reason: (e as Error).message, rule: 'brain' });
+      proposed = FALLBACK_BRAIN.nextMove(view);
+    }
     let move: Move;
     try {
-      move = enforceBounds(
-        goal,
-        their,
-        this.brain.nextMove({
-          goal,
-          theirPriceUAH: their,
-          myLastPriceUAH: this.myLastPrice.get(t.id),
-          round: t.rounds,
-          untrustedNote: m.note,
-        }),
-      );
+      move = enforceBounds(goal, their, proposed);
     } catch (e) {
       if (!(e instanceof BoundsError)) throw e;
       this.journal.record({ actor: 'system', kind: 'denied', summary: 'Хід мозку заблоковано', reason: e.message, rule: 'bounds' });

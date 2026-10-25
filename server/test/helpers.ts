@@ -2,6 +2,7 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { HumanDevice, StripeCheckout, exportPublicKey } from '../../core/src/index.ts';
+import type { Brain } from '../../core/src/index.ts';
 import { createHandler } from '../src/http.ts';
 import { MemoryStore } from '../src/store.ts';
 import type { Store } from '../src/store.ts';
@@ -23,9 +24,9 @@ export function fakeStripe() {
   return { provider, calls };
 }
 
-export async function startServer(store: Store = new MemoryStore()) {
+export async function startServer(store: Store = new MemoryStore(), o: { brain?: Brain } = {}) {
   const stripe = fakeStripe();
-  const world = await World.open({ store, vault: new Vault(MASTER_KEY), checkout: stripe.provider });
+  const world = await World.open({ store, vault: new Vault(MASTER_KEY), checkout: stripe.provider, brain: o.brain });
   const logs: string[] = [];
   const server = createServer(createHandler({ world, stripeWebhookSecret: WEBHOOK_SECRET, log: (m) => logs.push(m) }));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

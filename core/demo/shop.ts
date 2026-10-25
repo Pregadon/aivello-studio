@@ -43,7 +43,7 @@ andrii.startPurchase(
   andriiPhone.sign({ embassy: 'andrii', goal: { role: 'buyer', item: hit.product.title, targetUAH: 2700, limitUAH: 3100 } }),
   hit.embassy,
 );
-net.flush();
+await net.flush();
 
 for (const s of net.trace) {
   const m = s.payload;
